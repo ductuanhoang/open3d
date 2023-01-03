@@ -16,6 +16,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <ctime>
+#include <Eigen/Dense>
 
 #include "graphSlam.h"
 #include "open3d/Open3D.h"
@@ -26,7 +28,32 @@
 //
 // using MyDataFrame =
 // hmdf::StdDataFrame<std::vector<std::vector<std::vector<double>>>>;
-using MyDataFrame = hmdf::StdDataFrame<std::string>;
+// using MyDataFrame = hmdf::StdDataFrame<unsigned long>;
+
+using ULDataFrame = hmdf::StdDataFrame<unsigned long>;
+using StrDataFrame = hmdf::StdDataFrame<std::string>;
+
+void PrintPointCloud(const open3d::geometry::PointCloud &pointcloud);
+
+struct Stock
+{
+    // # TIMESTAMP (ns)	 RANGE (mm)	 SIGNAL	 NEAR_IR	 REFLECTIVITY	 X (mm)	 Y (mm)	 Z (mm)
+    std::string TIMESTAMP;
+    std::string RANGE;
+    std::string SIGNAL;
+    std::string NEAR_IR;
+    std::string REFLECTIVITY;
+	std::string X;
+	std::string Y;
+	std::string Z;
+};
+
+struct data_vector
+{
+    int X;
+    int Y;
+    int Z;
+};
 
 /**
  * @brief 
@@ -41,48 +68,70 @@ int read_cloud(const char *file_path,
                 bool cut,
                 open3d::geometry::PointCloud *cloud_output)
 {
-    MyDataFrame ibm_df;
-    open3d::geometry::PointCloud geom;
+    open3d::geometry::PointCloud geom;    
+    geom = open3d::geometry::PointCloud();
+
     bool ret = false;
 
     if (file_path == NULL)
         return -1;
 
-    std::cout << "Reading " << file_path << std::endl;
+        std::fstream inputFile;
 
-    if (input_df == false)
-        ret = ibm_df.read((const char *)file_path, hmdf::io_format::csv2);
+    std::string details;
+    std::cout<<"\n\nDisplaying the content of CSV file = " <<  file_path << std::endl;
 
-    if (ret == false)
+    inputFile.open(file_path, std::ios::in);
+    Stock Data_user;
+    data_vector data_point;
+    std::vector<data_vector> data_points;
+    std::string line = "";
+    int i = 0;
+    int range = 0;
+    while (getline(inputFile, line))
     {
-        std::cout << "Error reading" << file_path << std::endl;
-        return -1;
-    }
-    if (cut)
-    {
-        // ibm_df = ibm_df;
-        // remove values less than threshold
-    }
-    try
-    {
-        ibm_df.read((const char *)file_path, hmdf::io_format::csv2);
-        if (ibm_df.empty() == true)
-            return -1;
+        std::stringstream inputString(line);
+        // ignore first line
+        getline(inputString, Data_user.TIMESTAMP, ',');
+        getline(inputString, Data_user.RANGE, ',');
+        getline(inputString, Data_user.SIGNAL, ',');
+        getline(inputString, Data_user.NEAR_IR, ',');
+        getline(inputString, Data_user.REFLECTIVITY, ',');
+        getline(inputString, Data_user.X, ',');
+        getline(inputString, Data_user.Y, ',');
+        getline(inputString, Data_user.Z);
+        if(i > 0)
+        {
+            data_point.X = atoi(Data_user.X.c_str());
+            data_point.Y = atoi(Data_user.Y.c_str());
+            data_point.Z = atoi(Data_user.Z.c_str());
+            range = atoi(Data_user.RANGE.c_str());
+            if(cut == true)
+            {
+                // ignore 
+                if( range < 15000 && range > 2500)
+                {
+                    data_points.push_back(data_point);
+                }
+            }
+            else
+            {
+                data_points.push_back(data_point);
+            }
 
-        std::vector<double> close_const_ref =
-            ibm_df.get_column<double>("IBM_Close");
-        std::cout << "close_const_ref " << close_const_ref.at(2) << std::endl;
-        std::cout << "close_const_ref size" << close_const_ref.size() << std::endl;
+        }
+        line = "";
+        i++;
     }
-    catch (const hmdf::DataFrameError &ex)
+    for (size_t i = 0; i < data_points.size(); i++)
     {
-        std::cout << ex.what() << std::endl;
+        // std::cout << "X"<< data_points.at(i).X << "Y" << data_points.at(i).Y << "Z" << data_points.at(i).Z << std::endl;
+        geom.points_.push_back(Eigen::Vector3d(data_points.at(i).X, data_points.at(i).Y, data_points.at(i).Z));
     }
-    // get output
+    std::cout << "number of points = " <<  geom.points_.size() << std::endl;
     *cloud_output = geom;
-    // open3d::geometry::Geometry3D::TranslatePoints();
-    Eigen::Matrix4d_u node;
-    // open3d::pipelines::registration::PoseGraphNode(&node);
+
+    return ret;
 }
 
 /**
@@ -90,15 +139,15 @@ int read_cloud(const char *file_path,
  * 
  * @param graph_slam 
  */
-void update_optimization(graphSlam graph_slam)
+void update_optimization(graphSlam &graph_slam)
 {
     graph_slam.map_cloud = open3d::geometry::PointCloud();
     for (size_t point_id = 0; point_id < graph_slam.keyframes.size();
         point_id++)
     {
-        graph_slam.keyframes[point_id].cloud.Transform(
-            graph_slam.graph.nodes_[point_id].pose_);
-        Eigen::Vector3d color(0.9375, 0.3125, 0.546875);
+        graph_slam.keyframes[point_id].cloud.Transform(graph_slam.graph.nodes_[point_id].pose_);
+        // Eigen::Vector3d color(0.9375, 0.3125, 0.546875);
+        Eigen::Vector3d color((double) rand()/RAND_MAX, (double) rand()/RAND_MAX, (double) rand()/RAND_MAX);
         graph_slam.keyframes[point_id].cloud.PaintUniformColor(color);
         graph_slam.map_cloud += graph_slam.keyframes[point_id].cloud;
     }
@@ -110,7 +159,7 @@ void update_optimization(graphSlam graph_slam)
  * @param graph_slam 
  * @param voxel_size 
  */
-void optimize_pose_graph(graphSlam graph_slam, double voxel_size)
+void optimize_pose_graph(graphSlam &graph_slam, double voxel_size)
 {
     double max_correspondence_distance = 0;
     double edge_prune_threshold = 0;
@@ -120,12 +169,21 @@ void optimize_pose_graph(graphSlam graph_slam, double voxel_size)
         max_correspondence_distance = voxel_size * 1.4,
         edge_prune_threshold = 0.25, reference_node = 0,
         preference_loop_closure = 5);
+
+    
     std::shared_ptr<open3d::pipelines::registration::PoseGraph>
         pose_graph_input;
     open3d::pipelines::registration::GlobalOptimizationConvergenceCriteria
         criteria;
     open3d::pipelines::registration::GlobalOptimizationLevenbergMarquardt
         optimization_method;
+    
+    open3d::pipelines::registration::GlobalOptimization(
+        graph_slam.graph,
+        open3d::pipelines::registration::GlobalOptimizationLevenbergMarquardt(),
+        open3d::pipelines::registration::GlobalOptimizationConvergenceCriteria(),
+        option
+    );
 }
 
 /**
@@ -300,15 +358,65 @@ int main(void)
     double voxel_size = 1000;
     bool visualize = true;
     bool export_map = false;
-    open3d::geometry::PointCloud  input_cloud;
-    std::string dataset_path = "../5/pcap_csv/";
-    int ret = read_cloud("/home/tien.hoang/Desktop/mini_hdd/test_data/5/pcap_csv/pcap_out_000017.csv", false, true, &input_cloud);
-
+    std::shared_ptr<open3d::geometry::PointCloud> pointcloud_ptr(new open3d::geometry::PointCloud);
+    open3d::geometry::PointCloud input_cloud;
+    // std::string dataset_path = "../5/pcap_csv/";
+    // int ret = read_cloud("/home/vm/Desktop/SLAM/data/pcap_csv/pcap_out_000004.csv", false, true, &input_cloud);
+    // PrintPointCloud(input_cloud);
     // cloud_files = sorted([dataset_path + x for x in os.listdir(dataset_path) if '.csv' in x])[:5]
-
     graphSlam graph_slam;
-    std::cout << "\nRead sample data" << std::endl;
-    // open3d_gemo gemo_test;
-    // read_cloud("/home/vm/Desktop/lib/DataFrame/data/IBM.csv", false, false,
-    //            &gemo_test);
+    std::shared_ptr<open3d::geometry::PointCloud> test_graph(new open3d::geometry::PointCloud);
+    for (size_t i = 0; i < 10; i++)
+    {
+        std::string dataset_path = "/home/vm/Desktop/SLAM/data/pcap_csv/pcap_out_00000";
+        dataset_path.append(std::to_string(i));
+        dataset_path.append(".csv");
+
+        read_cloud(dataset_path.c_str(), false, true, &input_cloud);
+        PrintPointCloud(input_cloud);
+        graph_slam.update(input_cloud, voxel_size, export_map, visualize);
+        // printf("Graph slam has %d points.",
+                    //  (int)graph_slam.map_cloud..size());
+    //     std::cout << "graph_slam map_cloud size =  " << graph_slam.map_cloud.points_.size()<<std::endl;
+    //     *test_graph += graph_slam.map_cloud;
+    //     std::cout << "test_graph size = " << test_graph->points_.size() <<std::endl;
+    }
+
+    *pointcloud_ptr = graph_slam.map_cloud;
+    open3d::visualization::DrawGeometries({pointcloud_ptr}, "Combined Pointcloud 2",1920, 1080);
+
+    // optimize_pose_graph(graph_slam, voxel_size);
+    // // update_optimization(graph_slam);
+
+    // *pointcloud_ptr = graph_slam.map_cloud;
+    // open3d::visualization::DrawGeometries({pointcloud_ptr}, "Combined Pointcloud 3",1920, 1080);
+
+    // int ret = ibm_df.read("/home/vm/Desktop/SLAM/data/pcap_csv/IBM.csv", hmdf::io_format::csv);
+
+}
+
+void PrintPointCloud(const open3d::geometry::PointCloud &pointcloud) {
+    using namespace open3d;
+
+    bool pointcloud_has_normal = pointcloud.HasNormals();
+    printf("Pointcloud has %d points.",
+                     (int)pointcloud.points_.size());
+
+    // Eigen::Vector3d min_bound = pointcloud.GetMinBound();
+    // Eigen::Vector3d max_bound = pointcloud.GetMaxBound();
+
+    // for (size_t i = 0; i < pointcloud.points_.size(); i++) {
+    //     if (pointcloud_has_normal) {
+    //         const Eigen::Vector3d &point = pointcloud.points_[i];
+    //         const Eigen::Vector3d &normal = pointcloud.normals_[i];
+    //         printf("{:%.6f} {:%.6f} {:%.6f} {:%.6f} {:%.6f} {:%.6f}\r\n",
+    //                          point(0), point(1), point(2), normal(0), normal(1),
+    //                          normal(2));
+    //     } else {
+    //         const Eigen::Vector3d &point = pointcloud.points_[i];
+    //         printf("{:%.6f} {:%.6f} {:%.6f}\r\n", point(0), point(1),
+    //                          point(2));
+    //     }
+    // }
+    // printf("End of the list.");
 }
