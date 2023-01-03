@@ -2,6 +2,8 @@
 #define _GRAPH_SLAM_H_
 
 #include <iostream>
+#include <memory>
+#include <thread>
 #include <vector>
 #include <string>
 #include <stdbool.h>
@@ -18,12 +20,15 @@ class keyFrame
 private:
     /* data */    
 public:
-    keyFrame(int id,open3d::geometry::PointCloud cloud,  Eigen::Matrix4d odom);
+    keyFrame();
+    keyFrame(int _id,open3d::geometry::PointCloud _cloud,  Eigen::Matrix4d odom);
     ~keyFrame();
 
     // data
     int id;
     Eigen::Matrix4d odom;
+    // Eigen::Vector4d odom;
+    // Eigen::MatrixBase<Derived> odom; //
     open3d::geometry::PointCloud cloud;
     open3d::pipelines::registration::PoseGraphNode node;
 };
@@ -44,6 +49,8 @@ public:
     // data
     open3d::pipelines::registration::PoseGraph graph;
     open3d::geometry::PointCloud map_cloud;
+    // std::shared_ptr<open3d::geometry::PointCloud> map_cloud;
+    // std::make_shared<open3d::geometry::PointCloud> map_cloud;
     std::vector<keyFrame> keyframes;
 };
 
